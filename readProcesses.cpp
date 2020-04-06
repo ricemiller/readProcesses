@@ -1,86 +1,4 @@
-#include <stdio.h>
-#include <windows.h>
-#include <wtsapi32.h>
-#include <winuser.h>
-#include <sddl.h>
-#include <WinBase.h>
-#include <tchar.h>
-#include <winnt.h>
-#include <securitybaseapi.h>
-#include <processthreadsapi.h>
-
-#pragma comment(lib, "wtsapi32.lib")
-
-#define MAX_ACCOUNT_LEN 1024
-
-bool compLuid(LUID a, LUID b) {
-	return (a.HighPart == b.HighPart && a.LowPart == b.LowPart);
-}
-
-bool setDebugPriv() {
-	HANDLE processTokenHandle;
-	LUID debugLuid;
-	PTOKEN_PRIVILEGES privs;
-	DWORD size = 0;
-
-	//Open process token
-	if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &processTokenHandle)) {
-		printf("[!] Error: Cannot retrieve process token. Error code: %u\n", GetLastError());
-		return 1;
-	}
-
-	//Get seDebugPrivilege Luid
-	if (!LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &debugLuid)) {
-		printf("[!] Error: Cannot lookup privilege value. Error code: %u\n", GetLastError());
-		CloseHandle(processTokenHandle);
-		return FALSE;
-	}
-
-	//Get struct size
-	GetTokenInformation(processTokenHandle, TokenPrivileges, NULL, 0, &size);
-	
-	//Allocate memory
-	privs = (PTOKEN_PRIVILEGES)malloc(size);
-
-	//Get token privileges
-	if (!GetTokenInformation(processTokenHandle, TokenPrivileges, privs, size, &size)) {
-		printf("[!] Error: Cannot retrieve token information. Error code: %u\n", GetLastError());
-		CloseHandle(processTokenHandle);
-		return FALSE;
-	}
-
-	//Iterate over token privileges looking for seDebugPrivilege
-	BOOL isDebugPrivPresent = FALSE;
-	for (DWORD i = 0; i < privs->PrivilegeCount; i++) {
-		if (compLuid(privs->Privileges[i].Luid, debugLuid)) {
-			isDebugPrivPresent = TRUE;
-			break;
-		}
-	}
-
-	free(privs);
-
-	if (!isDebugPrivPresent) {
-		printf("[!] seDebugPrivilege is not present and cannot be enabled\n");
-		CloseHandle(processTokenHandle);
-		return FALSE;
-	}
-
-	//Enable seDebugPrivilege
-	TOKEN_PRIVILEGES debugPriv;
-	debugPriv.PrivilegeCount = 1;
-	debugPriv.Privileges[0].Luid = debugLuid;
-	debugPriv.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-
-	if (!AdjustTokenPrivileges(processTokenHandle, FALSE, &debugPriv, 0, NULL, NULL)) {
-		CloseHandle(processTokenHandle);
-		return FALSE;
-	}
-	else {
-		CloseHandle(processTokenHandle);
-		return TRUE;
-	}
-}
+#include "utils.h"
 
 int main() {
 	HANDLE hServer = WTS_CURRENT_SERVER_HANDLE;
@@ -91,14 +9,15 @@ int main() {
 	LPWSTR sid = NULL;
 	PTOKEN_OWNER tOwner;
 	DWORD error;
-	TCHAR userName[MAX_ACCOUNT_LEN] = {NULL};
-	DWORD nameLen = MAX_ACCOUNT_LEN;
-	TCHAR domainName[MAX_ACCOUNT_LEN] = {NULL};
-	DWORD domainLen = MAX_ACCOUNT_LEN;
+	TCHAR userName[MAX_LENGTH] = {NULL};
+	DWORD nameLen = MAX_LENGTH;
+	TCHAR domainName[MAX_LENGTH] = {NULL};
+	DWORD domainLen = MAX_LENGTH;
 	SID_NAME_USE accountType;
 
 	if (!setDebugPriv()) {
-		printf("[!] Error: Cannot set seDebugPrivilege\n");
+		printf("[!] Error: Cannot set seDebugPrivilege. Relaunching process as Administrator.\n");
+		relaunchAsAdmin();
 		return 1;
 	}
 
@@ -136,5 +55,6 @@ int main() {
 	ppProcessInfo = NULL;
 	LocalFree(sid);
 
+	getchar();
 	return 0;
 }
