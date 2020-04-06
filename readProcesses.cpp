@@ -1,4 +1,8 @@
 #include "utils.h"
+#include <sddl.h>
+#include <wtsapi32.h>
+
+#pragma comment(lib, "wtsapi32.lib")
 
 int main() {
 	HANDLE hServer = WTS_CURRENT_SERVER_HANDLE;
